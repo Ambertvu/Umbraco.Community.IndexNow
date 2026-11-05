@@ -8,6 +8,9 @@ internal sealed record IndexNowWorkItem
 {
     public Guid? ContentKey { get; private init; }
 
+    /// <summary>The cultures of <see cref="ContentKey"/> that changed; <c>null</c> when that is every culture that is live.</summary>
+    public IReadOnlySet<string>? Cultures { get; private init; }
+
     public string? Url { get; private init; }
 
     public IndexNowChangeType ChangeType { get; private init; }
@@ -16,7 +19,8 @@ internal sealed record IndexNowWorkItem
 
     public string? Culture { get; private init; }
 
-    public static IndexNowWorkItem ForContent(Guid contentKey) => new() { ContentKey = contentKey };
+    public static IndexNowWorkItem ForContent(Guid contentKey, IReadOnlySet<string>? cultures = null)
+        => new() { ContentKey = contentKey, Cultures = cultures };
 
     public static IndexNowWorkItem ForUrl(string url) => new() { Url = url };
 

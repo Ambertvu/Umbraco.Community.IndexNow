@@ -126,6 +126,27 @@ internal sealed class ScenarioMiddleware(RequestDelegate next, IServiceScopeFact
                 case "republish-culture":
                     _contentService.Publish(Find("Variant parent"), [OtherCulture]);
                     break;
+                case "republish-one-culture":
+                    _contentService.Publish(Find("Variant parent"), [Culture]);
+                    break;
+                case "invariant-one-culture":
+                    IContent shared = Find("Variant parent");
+                    shared.SetValue("sharedValue", true);
+                    _contentService.Save(shared);
+                    _contentService.Publish(shared, [Culture]);
+                    break;
+                case "rename-one-culture":
+                    IContent renamedInOne = Find("Variant parent");
+                    renamedInOne.SetCultureName("Variant parent renamed NL", OtherCulture);
+                    _contentService.Save(renamedInOne);
+                    _contentService.Publish(renamedInOne, [OtherCulture]);
+                    break;
+                case "unpublish-variant-parent":
+                    _contentService.Unpublish(Find("Variant parent"), "*");
+                    break;
+                case "republish-variant-parent-one-culture":
+                    _contentService.Publish(Find("Variant parent"), [Culture]);
+                    break;
                 case "rename-above-folder":
                     IContent section = Find("Section");
                     section.Name = "Section renamed";
@@ -182,6 +203,7 @@ internal sealed class ScenarioMiddleware(RequestDelegate next, IServiceScopeFact
                 AllowedAsRoot = true,
                 Variations = ContentVariation.Culture,
             };
+            variant.AddPropertyType(new PropertyType(shortStringHelper, checkbox, "sharedValue") { Name = "Shared value" });
             variant.AllowedTemplates = [template];
             variant.SetDefaultTemplate(template);
             await contentTypeService.CreateAsync(variant, Constants.Security.SuperUserKey);

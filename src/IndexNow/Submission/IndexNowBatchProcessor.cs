@@ -24,11 +24,13 @@ internal sealed class IndexNowBatchProcessor(
         var previousUrls = items.Where(item => item.Url is not null).ToList();
         var previousUrlsByContent = previousUrls.Where(item => item.Content is not null).ToLookup(item => item.Content!.Key);
         var changedContent = new List<IContent>();
-        var changesByContentId = new Dictionary<int, List<UrlChange>>();
+        var changesByContentId = new Dictionary<int, BranchChange>();
+        var untouchedUrls = new HashSet<(Guid ContentKey, string Url)>();
 
         // Current URLs first: a URL that was captured before a publish and still exists is first of all an update.
-        foreach (Guid key in items.Select(item => item.ContentKey).OfType<Guid>().Distinct())
+        foreach (IGrouping<Guid, IndexNowWorkItem> group in items.Where(item => item.ContentKey is not null).GroupBy(item => item.ContentKey!.Value))
         {
+            Guid key = group.Key;
             IContent? content = contentService.GetById(key);
             if (content is null || content.Trashed)
             {
@@ -36,17 +38,26 @@ internal sealed class IndexNowBatchProcessor(
             }
 
             IReadOnlyList<ResolvedUrl> urls = urlResolver.Resolve(content);
+            List<IndexNowWorkItem> previous = previousUrlsByContent[key].ToList();
+            var branchChange = new BranchChange(GetUrlChanges(urls, previous), GetNewCultures(urls, previous));
+            IReadOnlySet<string>? changedCultures = GetChangedCultures(group);
+
             foreach (ResolvedUrl url in urls)
             {
-                AddCandidate(candidates, url.Url, IndexNowChangeType.Updated, content, url.Culture);
+                if (url.Culture is null || changedCultures is null || changedCultures.Contains(url.Culture) || branchChange.AppliesTo(url.Culture))
+                {
+                    AddCandidate(candidates, url.Url, IndexNowChangeType.Updated, content, url.Culture);
+                }
+                else
+                {
+                    untouchedUrls.Add((key, url.Url));
+                }
             }
 
-            List<IndexNowWorkItem> previous = previousUrlsByContent[key].ToList();
-            List<UrlChange> changes = GetUrlChanges(urls, previous);
-            if (changes.Count > 0 || HasNewCulture(urls, previous))
+            if (branchChange.HasChanges)
             {
                 changedContent.Add(content);
-                changesByContentId[content.Id] = changes;
+                changesByContentId[content.Id] = branchChange;
             }
         }
 
@@ -58,7 +69,10 @@ internal sealed class IndexNowBatchProcessor(
             AddDescendants(content, changesByContentId, candidates, previousUrlsOfDescendants);
         }
 
-        foreach (IndexNowWorkItem item in previousUrls.Concat(previousUrlsOfDescendants))
+        // Everything that was live is captured before a publish, to see what changed. A URL of a culture that was left alone stays out.
+        foreach (IndexNowWorkItem item in previousUrls
+            .Where(item => item.Content is null || !untouchedUrls.Contains((item.Content.Key, item.Url!)))
+            .Concat(previousUrlsOfDescendants))
         {
             AddCandidate(candidates, item.Url!, item.ChangeType, item.Content, item.Culture);
         }
@@ -106,16 +120,37 @@ internal sealed class IndexNowBatchProcessor(
     /// A culture that goes live on a page that was live already changes the URLs below it in that culture. Umbraco reports
     /// the pages below a page that goes live as a whole by itself.
     /// </summary>
-    private static bool HasNewCulture(IReadOnlyList<ResolvedUrl> currentUrls, List<IndexNowWorkItem> previousUrls)
-        => previousUrls.Count > 0
-            && currentUrls.Any(current => !previousUrls.Any(previous => string.Equals(current.Culture, previous.Culture, StringComparison.OrdinalIgnoreCase)));
+    private static List<string?> GetNewCultures(IReadOnlyList<ResolvedUrl> currentUrls, List<IndexNowWorkItem> previousUrls)
+        => previousUrls.Count == 0
+            ? []
+            : currentUrls
+                .Where(current => !previousUrls.Any(previous => string.Equals(current.Culture, previous.Culture, StringComparison.OrdinalIgnoreCase)))
+                .Select(current => current.Culture)
+                .ToList();
+
+    /// <returns>The cultures that changed in this batch; <c>null</c> when a change was about every culture.</returns>
+    private static IReadOnlySet<string>? GetChangedCultures(IEnumerable<IndexNowWorkItem> items)
+    {
+        var cultures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (IndexNowWorkItem item in items)
+        {
+            if (item.Cultures is null)
+            {
+                return null;
+            }
+
+            cultures.UnionWith(item.Cultures);
+        }
+
+        return cultures;
+    }
 
     /// <summary>
     /// A rename or move also changes the URLs of everything below the page. Those old URLs were not captured, because that
     /// would cost a lookup of the whole branch on every publish. They follow from the new URL, so this only runs when a URL
     /// did change.
     /// </summary>
-    private void AddDescendants(IContent content, Dictionary<int, List<UrlChange>> changesByContentId, Dictionary<Uri, List<IndexNowCandidate>> candidates, List<IndexNowWorkItem> previousUrlsOfDescendants)
+    private void AddDescendants(IContent content, Dictionary<int, BranchChange> changesByContentId, Dictionary<Uri, List<IndexNowCandidate>> candidates, List<IndexNowWorkItem> previousUrlsOfDescendants)
     {
         foreach (IContent descendant in contentService.GetDescendants(content.Id))
         {
@@ -124,15 +159,21 @@ internal sealed class IndexNowBatchProcessor(
                 continue;
             }
 
-            List<UrlChange> changes = AncestorIds(descendant)
-                .SelectMany(id => changesByContentId.TryGetValue(id, out List<UrlChange>? found) ? found : [])
+            List<BranchChange> branchChanges = AncestorIds(descendant)
+                .Select(id => changesByContentId.GetValueOrDefault(id))
+                .OfType<BranchChange>()
                 .ToList();
 
             foreach (ResolvedUrl url in urlResolver.Resolve(descendant))
             {
+                if (!branchChanges.Any(change => change.AppliesTo(url.Culture)))
+                {
+                    continue;
+                }
+
                 AddCandidate(candidates, url.Url, IndexNowChangeType.Updated, descendant, url.Culture);
 
-                foreach (UrlChange change in changes.Where(change => change.AppliesTo(url.Culture)))
+                foreach (UrlChange change in branchChanges.SelectMany(change => change.UrlChanges).Where(change => change.AppliesTo(url.Culture)))
                 {
                     if (change.TryGetPreviousUrlOf(url.Url) is { } previousUrl)
                     {
@@ -190,6 +231,16 @@ internal sealed class IndexNowBatchProcessor(
         }
 
         return true;
+    }
+
+    /// <summary>What a change to a page means for the URLs at and below it.</summary>
+    private sealed record BranchChange(List<UrlChange> UrlChanges, List<string?> NewCultures)
+    {
+        public bool HasChanges => UrlChanges.Count > 0 || NewCultures.Count > 0;
+
+        public bool AppliesTo(string? culture)
+            => UrlChanges.Any(change => change.AppliesTo(culture))
+                || (NewCultures.Count > 0 && (culture is null || NewCultures.Contains(null) || NewCultures.Contains(culture, StringComparer.OrdinalIgnoreCase)));
     }
 
     private sealed record UrlChange(string PreviousUrl, string CurrentUrl, string? Culture)

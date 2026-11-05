@@ -149,6 +149,99 @@ public class ContentHandlerTests
     }
 
     [Fact]
+    public void A_publish_queues_the_cultures_it_publishes()
+    {
+        IContent page = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        IndexNowWorkItem item = Assert.Single(Queued(), item => item.ContentKey == page.Key);
+        Assert.Equal(["nl-NL"], item.Cultures!);
+    }
+
+    [Fact]
+    public void Publishing_captures_every_live_culture_to_see_what_changed()
+    {
+        IContent page = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+        _resolver.Setup(resolver => resolver.Resolve(page)).Returns(
+        [
+            new ResolvedUrl("https://www.one.nl/nl/", "nl-NL"),
+            new ResolvedUrl("https://www.one.nl/en/", "en-US"),
+        ]);
+
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        Assert.Equal(["en-US", "nl-NL"], Queued().Where(item => item.Url is not null).Select(item => item.Culture).Order());
+    }
+
+    [Fact]
+    public void A_publish_that_also_changes_an_invariant_value_is_about_every_culture()
+    {
+        IContent page = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+        SetInvariantValue(page, "new");
+        IContent stored = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+        SetInvariantValue(stored, "old");
+        _contentService.Setup(service => service.GetById(page.Id)).Returns(stored);
+
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        Assert.Null(Assert.Single(Queued(), item => item.ContentKey == page.Key).Cultures);
+    }
+
+    [Fact]
+    public void An_invariant_value_that_stays_the_same_keeps_the_publish_to_its_cultures()
+    {
+        IContent page = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+        SetInvariantValue(page, "same");
+        IContent stored = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+        SetInvariantValue(stored, "same");
+        _contentService.Setup(service => service.GetById(page.Id)).Returns(stored);
+
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        Assert.Equal(["nl-NL"], Assert.Single(Queued(), item => item.ContentKey == page.Key).Cultures!);
+    }
+
+    [Fact]
+    public void A_page_without_cultures_is_about_every_culture()
+    {
+        IContent page = Page("https://www.one.nl/page/");
+
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        Assert.Null(Assert.Single(Queued(), item => item.ContentKey == page.Key).Cultures);
+    }
+
+    [Fact]
+    public void A_page_that_comes_back_with_its_parent_is_about_every_culture()
+    {
+        IContent page = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+
+        // Umbraco sends no Publishing notification for these.
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        Assert.Null(Assert.Single(Queued()).Cultures);
+    }
+
+    [Fact]
+    public void Cultures_of_a_publish_that_got_cancelled_are_not_lost_or_in_the_way()
+    {
+        IContent page = VariantPage(publishing: "nl-NL", notPublishing: "en-US");
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+
+        Mock.Get(page).Setup(item => item.PublishCultureInfos).Returns(CultureInfos(dirty: "en-US", clean: "nl-NL"));
+        _handler.Handle(new ContentPublishingNotification(page, _messages));
+        _handler.Handle(new ContentPublishedNotification(page, _messages));
+
+        Assert.Equal(2, Queued().Count(item => item.ContentKey == page.Key));
+    }
+
+    [Fact]
     public void A_domain_change_captures_the_site_and_queues_its_root()
     {
         IContent child = Page("https://www.one.nl/page/");
@@ -172,12 +265,52 @@ public class ContentHandlerTests
     private IContent Page(params ResolvedUrl[] urls)
     {
         var id = _nextId++;
+        var contentType = new Mock<ISimpleContentType>();
+        contentType.Setup(type => type.Variations).Returns(ContentVariation.Nothing);
         var content = new Mock<IContent>();
         content.Setup(item => item.Id).Returns(id);
         content.Setup(item => item.Key).Returns(Guid.NewGuid());
         content.Setup(item => item.Path).Returns($"-1,{id}");
+        content.Setup(item => item.ContentType).Returns(contentType.Object);
         _resolver.Setup(resolver => resolver.Resolve(content.Object)).Returns(urls);
         return content.Object;
+    }
+
+    private IContent VariantPage(string publishing, string notPublishing)
+    {
+        IContent page = Page(Array.Empty<ResolvedUrl>());
+        var contentType = new Mock<ISimpleContentType>();
+        contentType.Setup(type => type.Variations).Returns(ContentVariation.Culture);
+        Mock<IContent> mock = Mock.Get(page);
+        mock.Setup(item => item.ContentType).Returns(contentType.Object);
+        mock.Setup(item => item.Published).Returns(true);
+        mock.Setup(item => item.PublishCultureInfos).Returns(CultureInfos(dirty: publishing, clean: notPublishing));
+        return page;
+    }
+
+    private static ContentCultureInfosCollection CultureInfos(string dirty, string clean)
+    {
+        var cultures = new ContentCultureInfosCollection();
+        cultures.AddOrUpdate(dirty, "Dirty", DateTime.UtcNow);
+        cultures.AddOrUpdate(clean, "Clean", DateTime.UtcNow);
+        cultures[clean].ResetDirtyProperties();
+        return cultures;
+    }
+
+    private static void SetInvariantValue(IContent page, string value)
+    {
+        var propertyType = new Mock<IPropertyType>();
+        propertyType.Setup(type => type.Variations).Returns(ContentVariation.Nothing);
+        var property = new Mock<IProperty>();
+        property.Setup(item => item.Alias).Returns("shared");
+        property.Setup(item => item.PropertyType).Returns(propertyType.Object);
+        property.Setup(item => item.GetValue(null, null, true)).Returns(value);
+
+        IProperty? found = property.Object;
+        var properties = new Mock<IPropertyCollection>();
+        properties.Setup(item => item.GetEnumerator()).Returns(() => new List<IProperty> { property.Object }.GetEnumerator());
+        properties.Setup(item => item.TryGetValue("shared", out found)).Returns(true);
+        Mock.Get(page).Setup(item => item.Properties).Returns(properties.Object);
     }
 
     private void AddDescendants(IContent parent, params IContent[] descendants)

@@ -135,8 +135,76 @@ public class BatchProcessorTests
 
         var urls = Assert.Single(_submitted).Urls;
         Assert.Contains("https://www.one.nl/oud/kind/", urls);
-        Assert.DoesNotContain(urls, url => url.Contains("/en/same/child/") && url != "https://www.one.nl/en/same/child/");
-        Assert.Contains("https://www.one.nl/en/same/child/", urls);
+        Assert.Contains("https://www.one.nl/nieuw/kind/", urls);
+        Assert.DoesNotContain("https://www.one.nl/en/same/child/", urls);
+    }
+
+    [Fact]
+    public async Task A_publish_of_one_culture_leaves_the_other_cultures_out()
+    {
+        Guid key = AddContent(new ResolvedUrl("https://www.one.nl/nl/", "nl-NL"), new ResolvedUrl("https://www.one.nl/en/", "en-US"));
+
+        await Process(
+            IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/nl/", _content[key], "nl-NL"),
+            IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/en/", _content[key], "en-US"),
+            IndexNowWorkItem.ForContent(key, Cultures("nl-NL")));
+
+        Assert.Equal(["https://www.one.nl/nl/"], Assert.Single(_submitted).Urls);
+    }
+
+    [Fact]
+    public async Task Cultures_published_in_one_batch_add_up()
+    {
+        Guid key = AddContent(new ResolvedUrl("https://www.one.nl/nl/", "nl-NL"), new ResolvedUrl("https://www.one.nl/en/", "en-US"));
+
+        await Process(IndexNowWorkItem.ForContent(key, Cultures("nl-NL")), IndexNowWorkItem.ForContent(key, Cultures("en-US")));
+
+        Assert.Equal(2, Assert.Single(_submitted).Urls.Count);
+    }
+
+    [Fact]
+    public async Task A_change_to_every_culture_wins_from_a_publish_of_one_in_the_same_batch()
+    {
+        Guid key = AddContent(new ResolvedUrl("https://www.one.nl/nl/", "nl-NL"), new ResolvedUrl("https://www.one.nl/en/", "en-US"));
+
+        await Process(IndexNowWorkItem.ForContent(key, Cultures("nl-NL")), IndexNowWorkItem.ForContent(key));
+
+        Assert.Equal(2, Assert.Single(_submitted).Urls.Count);
+    }
+
+    [Fact]
+    public async Task A_rename_in_a_culture_outside_the_published_ones_still_counts()
+    {
+        Guid key = AddContent(new ResolvedUrl("https://www.one.nl/nieuw/", "nl-NL"));
+
+        await Process(
+            IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/oud/", _content[key], "nl-NL"),
+            IndexNowWorkItem.ForContent(key, Cultures("en-US")));
+
+        Assert.Equal(["https://www.one.nl/nieuw/", "https://www.one.nl/oud/"], Assert.Single(_submitted).Urls);
+    }
+
+    [Fact]
+    public async Task A_culture_that_goes_offline_is_submitted_without_the_cultures_that_stay()
+    {
+        Guid key = AddContent(new ResolvedUrl("https://www.one.nl/en/", "en-US"));
+
+        await Process(
+            IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/en/", _content[key], "en-US"),
+            IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/nl/", _content[key], "nl-NL"),
+            IndexNowWorkItem.ForContent(key, Cultures()));
+
+        Assert.Equal(["https://www.one.nl/nl/"], Assert.Single(_submitted).Urls);
+    }
+
+    [Fact]
+    public async Task Without_a_culture_a_url_is_not_held_back_by_published_cultures()
+    {
+        Guid key = AddContent("https://www.one.nl/page/");
+
+        await Process(IndexNowWorkItem.ForContent(key, Cultures("nl-NL")));
+
+        Assert.Equal(["https://www.one.nl/page/"], Assert.Single(_submitted).Urls);
     }
 
     [Fact]
@@ -247,9 +315,9 @@ public class BatchProcessorTests
         Guid child = AddContent(new ResolvedUrl("https://www.one.nl/nl/child/", "nl-NL"), new ResolvedUrl("https://www.one.nl/en/child/", "en-US"));
         AddDescendants(parent, child);
 
-        await Process(IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/nl/", _content[parent], "nl-NL"), IndexNowWorkItem.ForContent(parent));
+        await Process(IndexNowWorkItem.ForRemovedUrl("https://www.one.nl/nl/", _content[parent], "nl-NL"), IndexNowWorkItem.ForContent(parent, Cultures("en-US")));
 
-        Assert.Contains("https://www.one.nl/en/child/", Assert.Single(_submitted).Urls);
+        Assert.Equal(["https://www.one.nl/en/", "https://www.one.nl/en/child/"], Assert.Single(_submitted).Urls.Order());
     }
 
     [Fact]
@@ -314,6 +382,8 @@ public class BatchProcessorTests
         await Process();
         Assert.Empty(_submitted);
     }
+
+    private static HashSet<string> Cultures(params string[] cultures) => new(cultures, StringComparer.OrdinalIgnoreCase);
 
     private Guid AddContent(string url, bool isTrashed = false)
         => AddContent(isTrashed, [new ResolvedUrl(url, null)]);

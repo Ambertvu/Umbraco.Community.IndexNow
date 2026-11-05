@@ -57,17 +57,22 @@ internal sealed class IndexNowContentHandler(
                         .Where(item => item.Culture is not null && culturesGoingOffline.Contains(item.Culture, StringComparer.OrdinalIgnoreCase)));
                 }
 
+                items.Add(IndexNowWorkItem.ForContent(content.Key, GetCulturesPublishing(content)));
                 queue.Hold(content.Key, items);
             }
         });
 
-    // Umbraco also sends this for the pages that come back with a parent that was unpublished.
+    // Umbraco also sends this for the pages that come back with a parent that was unpublished. Those get no Publishing
+    // notification, and everything of theirs that is live came back with them.
     public void Handle(ContentPublishedNotification notification)
         => Guarded(cancelable: null, () =>
         {
             foreach (IContent content in notification.PublishedEntities)
             {
-                ReleaseAndEnqueue(content.Key);
+                if (!queue.Release(content.Key).Any(item => item.ContentKey is not null))
+                {
+                    queue.EnqueueContent(content.Key);
+                }
             }
         });
 
@@ -181,6 +186,36 @@ internal sealed class IndexNowContentHandler(
             .Distinct()
             .Select(contentService.GetById)
             .WhereNotNull();
+
+    /// <returns>The cultures this publish changes; <c>null</c> when it changes every culture that is live.</returns>
+    private IReadOnlySet<string>? GetCulturesPublishing(IContent content)
+    {
+        if (!content.ContentType.VariesByCulture() || PublishesInvariantChange(content))
+        {
+            return null;
+        }
+
+        return content.PublishCultureInfos?.Values
+            .Where(info => info.IsDirty())
+            .Select(info => info.Culture)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? [];
+    }
+
+    // An invariant value shows in every culture, whichever culture it goes live with. Umbraco has already put what goes live
+    // on the entity, and the stored copy still has what is live now.
+    private bool PublishesInvariantChange(IContent content)
+    {
+        if (!content.Published || contentService.GetById(content.Id) is not { Published: true } stored)
+        {
+            return false;
+        }
+
+        return content.Properties
+            .Where(property => !property.PropertyType.VariesByCulture())
+            .Any(property => !stored.Properties.TryGetValue(property.Alias, out IProperty? storedProperty)
+                || !Equals(property.GetValue(culture: null, segment: null, published: true), storedProperty.GetValue(culture: null, segment: null, published: true)));
+    }
 
     private void ReleaseAndEnqueue(Guid contentKey)
     {

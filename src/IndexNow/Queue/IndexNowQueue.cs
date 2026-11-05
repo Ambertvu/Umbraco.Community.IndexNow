@@ -33,16 +33,25 @@ internal sealed class IndexNowQueue(IOptions<IndexNowOptions> options) : IIndexN
     /// content because Umbraco does not share notification state between the two sides of every change.
     /// </summary>
     public void Hold(Guid contentKey, IReadOnlyList<IndexNowWorkItem> items)
-        => _held.AddOrUpdate(contentKey, items, (_, held) => [.. held.Concat(items).DistinctBy(item => (item.Url, item.Culture))]);
+        => _held.AddOrUpdate(contentKey, items, (_, held) =>
+        [
+            .. held.Concat(items).Where(item => item.Url is not null).DistinctBy(item => (item.Url, item.Culture)),
+            .. held.Concat(items).Where(item => item.Url is null),
+        ]);
 
-    public void Release(Guid contentKey)
+    /// <returns>What was held and is now in the queue.</returns>
+    public IReadOnlyList<IndexNowWorkItem> Release(Guid contentKey)
     {
-        if (_held.TryRemove(contentKey, out IReadOnlyList<IndexNowWorkItem>? items))
+        if (!_held.TryRemove(contentKey, out IReadOnlyList<IndexNowWorkItem>? items))
         {
-            foreach (IndexNowWorkItem item in items)
-            {
-                Enqueue(item);
-            }
+            return [];
         }
+
+        foreach (IndexNowWorkItem item in items)
+        {
+            Enqueue(item);
+        }
+
+        return items;
     }
 }

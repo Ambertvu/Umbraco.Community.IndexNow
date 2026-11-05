@@ -47,8 +47,13 @@ The steps and what each must submit:
 | `noindex-on` | `visible`: search engines must learn that it changed |
 | `republish-noindex` | Nothing |
 | `unpublish-variant` | `variant-gone` in both languages |
-| `unpublish-culture` | `variant-parent` in both languages and its child in Dutch |
-| `republish-culture` | `variant-parent` and its child in both languages |
+| `unpublish-culture` | `variant-parent` and its child in Dutch |
+| `republish-culture` | `variant-parent` and its child in Dutch |
+| `republish-one-culture` | `variant-parent` in English |
+| `invariant-one-culture` | `variant-parent` in both languages: a value without a culture shows in both |
+| `rename-one-culture` | The old and new Dutch URLs of `variant-parent` and its child |
+| `unpublish-variant-parent` | `variant-parent` and its child in both languages |
+| `republish-variant-parent-one-culture` | `variant-parent` and its child in English |
 | `rename-above-folder` | The old and new URLs of `section` and of `in-folder` without `hidden-folder` in them |
 | `folder-then-parent` | `section-renamed` |
 | `change-domain` | The root and `page-on-two` on both `www.two-demo.nl` and `www.two-new-demo.nl` |

@@ -122,6 +122,7 @@ indexNowQueue.EnqueueContent(contentKey);
 - **Restarts:** the queue lives in memory, so changes still waiting during a restart are lost. Search engines pick those up from the sitemap as they always did.
 - **Load balancing:** content notifications fire on the server that does the publish, so a URL is submitted once.
 - **A cancelled change:** URLs that are about to disappear are read before the change. If another handler then cancels it, a live URL gets submitted once more, which does no harm.
+- **Cultures:** a publish submits the cultures it publishes, not the others that are live. A value without a culture shows in every culture, so when one goes live with the publish all of them are submitted.
 - **A rename or move:** the old and new URLs of the pages below it are submitted too. Their old URLs are derived from the new ones, because reading a whole branch on every publish would be too slow. So when a page and a page below it both change in one batch, the old URLs below that second page may not all be found.
 - **Non-canonical domains:** only the URL Umbraco itself generates for a page is submitted, not those of other domains on the same node.
 
