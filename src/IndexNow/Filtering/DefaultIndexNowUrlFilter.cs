@@ -7,21 +7,26 @@ using Umbraco.Extensions;
 
 namespace IndexNow.Filtering;
 
-/// <summary>The rules from configuration: document types, templates and noindex-style properties.</summary>
+/// <summary>The built-in rules: document types, templates, noindex-style properties and public access.</summary>
 internal sealed class DefaultIndexNowUrlFilter : IIndexNowUrlFilter
 {
     private readonly IContentService _contentService;
+    private readonly IPublicAccessService _publicAccessService;
+    private readonly IDomainService _domainService;
     private readonly IndexNowOptions _options;
     private readonly string[] _noIndexProperties;
     private readonly string[] _indexProperties;
     private readonly string[] _siteWideProperties;
 
-    // Registered scoped and a scope lasts one batch, so a branch does not look up its root per page.
-    private readonly Dictionary<int, IContent?> _roots = [];
+    // Registered scoped and a scope lasts one batch, so a branch does not look these up per page.
+    private readonly Dictionary<int, IContent?> _ancestors = [];
+    private HashSet<int>? _domainRootIds;
 
-    public DefaultIndexNowUrlFilter(IContentService contentService, IOptions<IndexNowOptions> options)
+    public DefaultIndexNowUrlFilter(IContentService contentService, IPublicAccessService publicAccessService, IDomainService domainService, IOptions<IndexNowOptions> options)
     {
         _contentService = contentService;
+        _publicAccessService = publicAccessService;
+        _domainService = domainService;
         _options = options.Value;
 
         var useDefaults = _options.UseDefaultProperties;
@@ -30,10 +35,10 @@ internal sealed class DefaultIndexNowUrlFilter : IIndexNowUrlFilter
         _siteWideProperties = Combine(useDefaults ? IndexNowDefaults.SiteWideNoIndexProperties : [], _options.SiteWideNoIndexProperties);
     }
 
-    public ValueTask<bool> ShouldSubmitAsync(IndexNowCandidate candidate, CancellationToken cancellationToken)
-        => ValueTask.FromResult(candidate.Content is not { } content || IsIndexable(content, candidate.Culture));
+    public async ValueTask<bool> ShouldSubmitAsync(IndexNowCandidate candidate, CancellationToken cancellationToken)
+        => candidate.Content is not { } content || await IsIndexableAsync(content, candidate.Culture);
 
-    private bool IsIndexable(IContent content, string? culture)
+    private async ValueTask<bool> IsIndexableAsync(IContent content, string? culture)
     {
         if (_options.ExcludedDocumentTypes.Contains(content.ContentType.Alias, StringComparer.OrdinalIgnoreCase))
         {
@@ -45,18 +50,25 @@ internal sealed class DefaultIndexNowUrlFilter : IIndexNowUrlFilter
             return false;
         }
 
-        if (_noIndexProperties.Any(alias => ReadBoolean(content, alias, culture) is true)
-            || _indexProperties.Any(alias => ReadBoolean(content, alias, culture) is false))
+        if (_noIndexProperties.Any(alias => ReadBoolean(content, alias, culture, published: true) is true)
+            || _indexProperties.Any(alias => ReadBoolean(content, alias, culture, published: true) is false))
         {
             return false;
         }
 
-        return GetRoot(content) is not { } root
-            || !_siteWideProperties.Any(alias => ReadBoolean(root, alias, culture) is true);
+        // Announcing a page behind a login would give away its address.
+        if (_publicAccessService.IsProtected(content).Success)
+        {
+            return false;
+        }
+
+        // A whole site that was unpublished has no published values left, and its pages must not be announced either.
+        return await GetSiteRootAsync(content) is not { } root
+            || !_siteWideProperties.Any(alias => ReadBoolean(root, alias, culture, published: root.Published) is true);
     }
 
-    /// <returns>The published value, or <c>null</c> when the content has no such True/false property.</returns>
-    private static bool? ReadBoolean(IContent content, string alias, string? culture)
+    /// <returns>The value, or <c>null</c> when the content has no such True/false property or it was never set.</returns>
+    private static bool? ReadBoolean(IContent content, string alias, string? culture, bool published)
     {
         if (!content.Properties.TryGetValue(alias, out IProperty? property)
             || property.PropertyType.PropertyEditorAlias != Constants.PropertyEditors.Aliases.Boolean)
@@ -65,30 +77,61 @@ internal sealed class DefaultIndexNowUrlFilter : IIndexNowUrlFilter
         }
 
         var valueCulture = property.PropertyType.VariesByCulture() ? culture : null;
-        return content.GetValue<bool>(alias, valueCulture, segment: null, published: true);
-    }
-
-    private IContent? GetRoot(IContent content)
-    {
-        // Path looks like -1,1061,1062: the system root, the site root, then its descendants.
-        var parts = content.Path.Split(',');
-        if (parts.Length < 2 || !int.TryParse(parts[1], out var rootId) || rootId == Constants.System.RecycleBinContent)
+        var value = property.GetValue(valueCulture, segment: null, published);
+        if (value is null or "")
         {
             return null;
         }
 
-        if (rootId == content.Id)
+        Attempt<bool> converted = value.TryConvertTo<bool>();
+        return converted.Success ? converted.Result : null;
+    }
+
+    /// <summary>
+    /// The node with the closest domain. Without a domain, the highest node with a template: a folder above the home page
+    /// holds no page of its own.
+    /// </summary>
+    private async ValueTask<IContent?> GetSiteRootAsync(IContent content)
+    {
+        // Path looks like -1,1061,1062: the system root, then from the top down to the content itself.
+        var path = content.Path.Split(',').Select(id => int.TryParse(id, out var parsed) ? parsed : 0).ToArray();
+        if (path.Contains(Constants.System.RecycleBinContent))
+        {
+            return null;
+        }
+
+        var ids = path.Where(id => id > 0).ToArray();
+        if (ids.Length == 0)
+        {
+            return null;
+        }
+
+        _domainRootIds ??= (await _domainService.GetAllAsync(includeWildcards: false))
+            .Select(domain => domain.RootContentId)
+            .OfType<int>()
+            .ToHashSet();
+
+        var closestDomain = Array.FindLastIndex(ids, _domainRootIds.Contains);
+        return closestDomain >= 0
+            ? GetAncestorOrSelf(ids[closestDomain], content)
+            : ids.Select(id => GetAncestorOrSelf(id, content)).FirstOrDefault(node => node?.TemplateId is not null)
+                ?? GetAncestorOrSelf(ids[0], content);
+    }
+
+    private IContent? GetAncestorOrSelf(int id, IContent content)
+    {
+        if (id == content.Id)
         {
             return content;
         }
 
-        if (!_roots.TryGetValue(rootId, out IContent? root))
+        if (!_ancestors.TryGetValue(id, out IContent? ancestor))
         {
-            root = _contentService.GetById(rootId);
-            _roots[rootId] = root;
+            ancestor = _contentService.GetById(id);
+            _ancestors[id] = ancestor;
         }
 
-        return root;
+        return ancestor;
     }
 
     private static string[] Combine(IEnumerable<string> defaults, IEnumerable<string> configured)

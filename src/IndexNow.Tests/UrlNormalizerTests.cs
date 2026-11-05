@@ -36,6 +36,7 @@ public class UrlNormalizerTests
 
     [Theory]
     [InlineData("http://localhost/page/?a=1")]
+    [InlineData("https://localhost/page/?a=1")]
     [InlineData("/page/?a=1")]
     public void Rebases_domainless_urls_on_the_base_url(string url)
         => Assert.Equal(

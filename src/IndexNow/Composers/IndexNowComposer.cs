@@ -33,9 +33,16 @@ public sealed class IndexNowComposer : IComposer
             .AddNotificationHandler<ContentPublishingNotification, IndexNowContentHandler>()
             .AddNotificationHandler<ContentPublishedNotification, IndexNowContentHandler>()
             .AddNotificationHandler<ContentUnpublishingNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<ContentUnpublishedNotification, IndexNowContentHandler>()
             .AddNotificationHandler<ContentMovingToRecycleBinNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<ContentMovedToRecycleBinNotification, IndexNowContentHandler>()
             .AddNotificationHandler<ContentMovingNotification, IndexNowContentHandler>()
             .AddNotificationHandler<ContentMovedNotification, IndexNowContentHandler>()
-            .AddNotificationHandler<ContentDeletingNotification, IndexNowContentHandler>();
+            .AddNotificationHandler<ContentDeletingNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<ContentDeletedNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<DomainSavingNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<DomainSavedNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<DomainDeletingNotification, IndexNowContentHandler>()
+            .AddNotificationHandler<DomainDeletedNotification, IndexNowContentHandler>();
     }
 }

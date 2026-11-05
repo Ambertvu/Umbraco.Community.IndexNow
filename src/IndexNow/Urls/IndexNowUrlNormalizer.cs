@@ -35,7 +35,7 @@ internal static class IndexNowUrlNormalizer
             return null;
         }
 
-        // Outside a request Umbraco builds domainless URLs on http://localhost.
+        // A site without domains gets its URLs on localhost, see IndexNowUrlResolver.
         if (!IsPublicHost(uri))
         {
             if (baseUri is null || !IsPublicHost(baseUri))
@@ -69,7 +69,9 @@ internal static class IndexNowUrlNormalizer
     }
 
     private static bool IsAllowedHost(Uri uri, IndexNowOptions options)
-        => options.Hosts.Length == 0 || options.Hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase);
+        => options.Hosts.Length == 0
+            || options.Hosts.Contains(uri.Host, StringComparer.OrdinalIgnoreCase)
+            || options.Hosts.Contains(uri.IdnHost, StringComparer.OrdinalIgnoreCase);
 
     private static bool IsExcludedPath(Uri uri, IndexNowOptions options)
     {

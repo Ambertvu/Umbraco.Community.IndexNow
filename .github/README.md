@@ -8,7 +8,7 @@ Tell Bing and the other [IndexNow](https://www.indexnow.org/) search engines abo
 
 - Submits pages that are published, renamed, moved, unpublished, trashed or deleted, including the branch below them.
 - Works across multiple domains and cultures.
-- Leaves out noindex pages, pages without a template and non-public hosts.
+- Leaves out noindex pages, pages behind Public Access, pages without a template and non-public hosts.
 - No backoffice, no database tables. A failure is logged and never gets in the way of a publish.
 
 ## Installation
@@ -35,7 +35,7 @@ That is it. The package serves the key at `/{key}.txt` on every domain, which is
 
 ### A site without Umbraco domains
 
-Outside a request Umbraco cannot know the public address of a site without domains (Culture and Hostnames), so these pages are skipped until you set `BaseUrl`:
+The package cannot know the public address of a site without domains (Culture and Hostnames), so these pages are skipped until you set `BaseUrl`:
 
 ```json
 {
@@ -52,6 +52,7 @@ A URL is only submitted when all of these hold:
 
 - It is on a public host: not `localhost`, an IP address, a name without a dot, or `.local`, `.test` and the like.
 - The page has a template (`RequireTemplate`).
+- The page is not behind Public Access: announcing it would give away its address.
 - Its document type and path are not excluded (`ExcludedDocumentTypes`, `ExcludedPaths`).
 - No noindex property says otherwise, see below.
 - Every filter of your own agrees.
@@ -64,13 +65,13 @@ Only True/false properties count, and a document type without them is not affect
 |---|---|---|
 | Left out when `true` | `noIndex`, `doNotIndex`, `hideInSeoSitemap`, `hideFromSearchEngines`, `excludeFromSitemap` | `NoIndexProperties` |
 | Left out when `false` | `index`, `indexable`, `allowIndexing`, `canBeIndexed` | `IndexProperties` |
-| Whole site left out when `true` on its root node | `noIndex`, `doNotIndex` | `SiteWideNoIndexProperties` |
+| Whole site left out when `true` on its root node: the node with the closest domain or, without domains, the highest node with a template | `noIndex`, `doNotIndex` | `SiteWideNoIndexProperties` |
 
 Aliases are not case sensitive. `umbracoNaviHide` is deliberately not on the list: it hides a page from navigation, not from search engines. Set `UseDefaultProperties` to `false` to use only your own aliases.
 
 ### Filters of your own
 
-For anything else, such as a robots dropdown, add a filter. The candidate holds the URL, the content, the culture and whether the URL is new or gone.
+For anything else, such as a robots dropdown, add a filter. The candidate holds the URL, the content, the culture and whether the URL is current or from before the change. A URL with more than one candidate, such as a page that stays at its URL but just got `noIndex`, is submitted when one of them passes: search engines must learn that the page changed.
 
 ```csharp
 public class PrivateSectionFilter : IIndexNowUrlFilter
@@ -103,7 +104,7 @@ indexNowQueue.EnqueueContent(contentKey);
 | `Endpoint` | `https://api.indexnow.org/indexnow` | Shares a submission with every participating engine. |
 | `BaseUrl` | | Public address of a site without Umbraco domains. |
 | `ForceHttps` | `true` | Submit https URLs, also when Umbraco builds http ones. |
-| `BatchDelaySeconds` | `30` | How long to collect changes before submitting. |
+| `BatchDelaySeconds` | `30` | Submit once no change has come in for this long, at least 1 second. Editors who keep publishing hold back a submission for at most ten times this. |
 | `Hosts` | all | When set, only these hosts are submitted. |
 | `ExcludedDocumentTypes` | none | Document type aliases. |
 | `ExcludedPaths` | none | Path prefixes, matched on whole segments: `/search` also covers `/search/results`, not `/searching`. |
@@ -121,6 +122,7 @@ indexNowQueue.EnqueueContent(contentKey);
 - **Restarts:** the queue lives in memory, so changes still waiting during a restart are lost. Search engines pick those up from the sitemap as they always did.
 - **Load balancing:** content notifications fire on the server that does the publish, so a URL is submitted once.
 - **A cancelled change:** URLs that are about to disappear are read before the change. If another handler then cancels it, a live URL gets submitted once more, which does no harm.
+- **A rename or move:** the old and new URLs of the pages below it are submitted too. Their old URLs are derived from the new ones, because reading a whole branch on every publish would be too slow. So when a page and a page below it both change in one batch, the old URLs below that second page may not all be found.
 - **Non-canonical domains:** only the URL Umbraco itself generates for a page is submitted, not those of other domains on the same node.
 
 ## Contributing

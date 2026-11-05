@@ -35,13 +35,11 @@ internal sealed class IndexNowBackgroundService(
         {
             while (await queue.Reader.WaitToReadAsync(stoppingToken))
             {
-                await Task.Delay(settings.BatchDelay, stoppingToken);
-
-                var items = new List<IndexNowWorkItem>();
-                while (queue.Reader.TryRead(out IndexNowWorkItem? item))
-                {
-                    items.Add(item);
-                }
+                List<IndexNowWorkItem> items = await IndexNowBatchCollector.CollectAsync(
+                    queue.Reader,
+                    settings.BatchDelay,
+                    settings.MaxBatchWait,
+                    stoppingToken);
 
                 await ProcessAsync(items, stoppingToken);
             }
@@ -59,8 +57,10 @@ internal sealed class IndexNowBackgroundService(
             using IServiceScope scope = scopeFactory.CreateScope();
             await scope.ServiceProvider.GetRequiredService<IndexNowBatchProcessor>().ProcessAsync(items, stoppingToken);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
         {
+            // Includes a cancellation that is not a shutdown, such as a timeout: an exception that leaves this service
+            // would stop the whole site.
             logger.LogError(exception, "IndexNow could not process {Count} changes", items.Count);
         }
     }

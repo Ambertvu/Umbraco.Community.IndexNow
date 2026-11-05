@@ -8,7 +8,7 @@ Tell Bing and the other IndexNow search engines about changed pages the moment a
 
 - Submits pages that are published, renamed, moved, unpublished, trashed or deleted, including the branch below them.
 - Works across multiple domains and cultures.
-- Leaves out noindex pages, pages without a template and non-public hosts. Add your own rules with a filter.
+- Leaves out noindex pages, pages behind Public Access, pages without a template and non-public hosts. Add your own rules with a filter.
 - No backoffice, no database tables: add the package and a key.
 
 ```json

@@ -17,13 +17,14 @@ public sealed partial class IndexNowOptions
     public string Endpoint { get; set; } = "https://api.indexnow.org/indexnow";
 
     /// <summary>Public address of a site without Umbraco domains, for example <c>https://www.example.com</c>.
-    /// Without domains Umbraco has no public host to build a URL with, so these URLs are dropped when this is empty.</summary>
+    /// Without domains there is no public host to build a URL with, so these URLs are dropped when this is empty.</summary>
     public string? BaseUrl { get; set; }
 
-    /// <summary>Submit https URLs, also when Umbraco builds http ones (a domain without a scheme outside a request).</summary>
+    /// <summary>Submit https URLs, also for a domain that is set up in Umbraco as http.</summary>
     public bool ForceHttps { get; set; } = true;
 
-    /// <summary>How long to collect changes before submitting. Also gives Umbraco's caches time to catch up after a publish.</summary>
+    /// <summary>Submit once no change has come in for this long, which also gives Umbraco's caches time to catch up after a
+    /// publish, so it is at least one second. Editors who keep publishing hold back a submission for at most ten times this.</summary>
     public int BatchDelaySeconds { get; set; } = 30;
 
     /// <summary>When not empty, only these hosts are submitted.</summary>
@@ -50,7 +51,9 @@ public sealed partial class IndexNowOptions
     /// <summary>True/false properties that leave out a whole site when they are <c>true</c> on its root node, added to the defaults.</summary>
     public string[] SiteWideNoIndexProperties { get; set; } = [];
 
-    internal TimeSpan BatchDelay => TimeSpan.FromSeconds(Math.Max(0, BatchDelaySeconds));
+    internal TimeSpan BatchDelay => TimeSpan.FromSeconds(Math.Max(1, BatchDelaySeconds));
+
+    internal TimeSpan MaxBatchWait => BatchDelay * 10;
 
     internal bool HasValidKey => Key is not null && KeyFormat().IsMatch(Key);
 

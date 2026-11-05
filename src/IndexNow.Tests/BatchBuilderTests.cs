@@ -30,6 +30,15 @@ public class BatchBuilderTests
     }
 
     [Fact]
+    public void Sends_the_same_form_of_an_international_host_as_its_urls()
+    {
+        IndexNowBatch batch = Assert.Single(IndexNowBatchBuilder.Build([new Uri("https://www.caf\u00e9.nl/a/")]));
+
+        Assert.Equal("www.xn--caf-dma.nl", batch.Host);
+        Assert.Equal(batch.Host, new Uri(Assert.Single(batch.Urls)).IdnHost);
+    }
+
+    [Fact]
     public void Uses_the_limit_of_the_protocol()
         => Assert.Equal(10_000, IndexNowBatchBuilder.MaxUrlsPerRequest);
 }

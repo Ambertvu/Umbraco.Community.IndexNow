@@ -14,6 +14,11 @@ public class DefaultFilterTests
     private const int PageId = 1001;
 
     private readonly Mock<IContentService> _contentService = new();
+    private readonly Mock<IPublicAccessService> _publicAccessService = new();
+    private readonly Mock<IDomainService> _domainService = new();
+
+    public DefaultFilterTests()
+        => _publicAccessService.Setup(service => service.IsProtected(It.IsAny<IContent>())).Returns(Attempt<PublicAccessEntry?>.Fail());
 
     [Fact]
     public async Task Allows_a_page_without_any_of_the_properties()
@@ -127,11 +132,86 @@ public class DefaultFilterTests
         => Assert.False(await ShouldSubmit(Page(), new IndexNowOptions { ExcludedDocumentTypes = ["TESTPAGE"] }));
 
     [Fact]
+    public async Task Leaves_out_a_page_behind_public_access()
+    {
+        IContent page = Page();
+        _publicAccessService.Setup(service => service.IsProtected(page)).Returns(Attempt<PublicAccessEntry?>.Succeed(null));
+
+        Assert.False(await ShouldSubmit(page));
+    }
+
+    [Fact]
+    public async Task A_property_that_was_never_set_says_nothing()
+    {
+        Assert.True(await ShouldSubmit(Page(("allowIndexing", null))));
+        Assert.True(await ShouldSubmit(Page(("noIndex", null))));
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    [InlineData("1", false)]
+    [InlineData("", true)]
+    public async Task Understands_how_umbraco_stores_a_true_false_value(object stored, bool expected)
+    {
+        IContent page = Page(("noIndex", false));
+        Mock.Get(page.Properties["noIndex"]!)
+            .Setup(property => property.GetValue(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>()))
+            .Returns(stored);
+
+        Assert.Equal(expected, await ShouldSubmit(page));
+    }
+
+    [Fact]
+    public async Task A_folder_above_the_home_page_is_not_the_site_root()
+    {
+        const int folderId = 900;
+        _contentService.Setup(service => service.GetById(folderId)).Returns(Page($"-1,{folderId}", templateId: null));
+        _contentService.Setup(service => service.GetById(RootId)).Returns(Page($"-1,{folderId},{RootId}", 1, ("noIndex", true)));
+
+        Assert.False(await ShouldSubmit(Page(path: $"-1,{folderId},{RootId},{PageId}")));
+    }
+
+    [Fact]
+    public async Task The_closest_domain_decides_the_site_root()
+    {
+        const int subsiteId = 1002;
+        _contentService.Setup(service => service.GetById(RootId)).Returns(Page($"-1,{RootId}", 1));
+        _contentService.Setup(service => service.GetById(subsiteId)).Returns(Page($"-1,{RootId},{subsiteId}", 1, ("noIndex", true)));
+        AddDomainOn(subsiteId);
+
+        Assert.False(await ShouldSubmit(Page(path: $"-1,{RootId},{subsiteId},{PageId}")));
+        Assert.True(await ShouldSubmit(Page(path: $"-1,{RootId},{PageId}")));
+    }
+
+    [Fact]
+    public async Task A_noindex_page_below_the_site_root_does_not_hide_its_children()
+    {
+        const int sectionId = 1002;
+        _contentService.Setup(service => service.GetById(RootId)).Returns(Page($"-1,{RootId}", 1));
+        _contentService.Setup(service => service.GetById(sectionId)).Returns(Page($"-1,{RootId},{sectionId}", 1, ("noIndex", true)));
+        AddDomainOn(RootId);
+
+        Assert.True(await ShouldSubmit(Page(path: $"-1,{RootId},{sectionId},{PageId}")));
+    }
+
+    [Fact]
+    public async Task Reads_the_saved_value_of_a_site_root_that_was_unpublished()
+    {
+        IContent root = Page($"-1,{RootId}", 1, ("noIndex", false));
+        Mock.Get(root.Properties["noIndex"]!).Setup(property => property.GetValue(null, null, false)).Returns(true);
+        Mock.Get(root.Properties["noIndex"]!).Setup(property => property.GetValue(null, null, true)).Returns((object?)null);
+        _contentService.Setup(service => service.GetById(RootId)).Returns(root);
+
+        Assert.False(await ShouldSubmit(Page(path: $"-1,{RootId},{PageId}")));
+    }
+
+    [Fact]
     public async Task Reads_a_culture_variant_property_for_the_culture_of_the_url()
     {
         IContent page = Page(("noIndex", false));
         Mock.Get(page.Properties["noIndex"]!.PropertyType).Setup(type => type.Variations).Returns(ContentVariation.Culture);
-        Mock.Get(page).Setup(content => content.GetValue<bool>("noIndex", "nl-NL", null, true)).Returns(true);
+        Mock.Get(page.Properties["noIndex"]!).Setup(property => property.GetValue("nl-NL", null, true)).Returns(true);
 
         var dutch = new IndexNowCandidate(new Uri("https://www.example.com/"), IndexNowChangeType.Updated, page, "nl-NL");
         var english = new IndexNowCandidate(new Uri("https://www.example.com/en/"), IndexNowChangeType.Updated, page, "en-US");
@@ -144,12 +224,19 @@ public class DefaultFilterTests
         => Filter(options).ShouldSubmitAsync(Candidate(content), CancellationToken.None).AsTask();
 
     private DefaultIndexNowUrlFilter Filter(IndexNowOptions? options = null)
-        => new(_contentService.Object, Options.Create(options ?? new IndexNowOptions()));
+        => new(_contentService.Object, _publicAccessService.Object, _domainService.Object, Options.Create(options ?? new IndexNowOptions()));
+
+    private void AddDomainOn(int contentId)
+    {
+        var domain = new Mock<IDomain>();
+        domain.Setup(item => item.RootContentId).Returns(contentId);
+        _domainService.Setup(service => service.GetAllAsync(false)).ReturnsAsync([domain.Object]);
+    }
 
     private static IndexNowCandidate Candidate(IContent content)
         => new(new Uri("https://www.example.com/page/"), IndexNowChangeType.Updated, content, null);
 
-    private static IContent Page(params (string Alias, bool Value)[] properties)
+    private static IContent Page(params (string Alias, bool? Value)[] properties)
         => Page($"-1,{PageId}", 1, properties);
 
     private static IContent Page(string path)
@@ -158,7 +245,7 @@ public class DefaultFilterTests
     private static IContent Page(int? templateId)
         => Page($"-1,{PageId}", templateId);
 
-    private static IContent Page(string path, int? templateId, params (string Alias, bool Value)[] properties)
+    private static IContent Page(string path, int? templateId, params (string Alias, bool? Value)[] properties)
     {
         var contentType = new Mock<ISimpleContentType>();
         contentType.Setup(type => type.Alias).Returns("testPage");
@@ -169,7 +256,7 @@ public class DefaultFilterTests
             StringComparer.OrdinalIgnoreCase);
 
         var collection = new Mock<IPropertyCollection>();
-        foreach ((string alias, _) in properties)
+        foreach ((string alias, bool? stored) in properties)
         {
             var propertyType = new Mock<IPropertyType>();
             propertyType.Setup(type => type.PropertyEditorAlias).Returns(Constants.PropertyEditors.Aliases.Boolean);
@@ -177,6 +264,7 @@ public class DefaultFilterTests
 
             var property = new Mock<IProperty>();
             property.Setup(item => item.PropertyType).Returns(propertyType.Object);
+            property.Setup(item => item.GetValue(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>())).Returns(stored);
             IProperty? value = property.Object;
 
             collection.Setup(items => items[alias]).Returns(value);
@@ -196,9 +284,6 @@ public class DefaultFilterTests
         content.Setup(item => item.TemplateId).Returns(templateId);
         content.Setup(item => item.Path).Returns(path);
         content.Setup(item => item.Id).Returns(int.Parse(path.Split(',')[^1]));
-        content
-            .Setup(item => item.GetValue<bool>(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), true))
-            .Returns((string alias, string? _, string? _, bool _) => values[alias]);
 
         return content.Object;
     }

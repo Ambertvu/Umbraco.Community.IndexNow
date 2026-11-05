@@ -10,7 +10,7 @@ internal static class IndexNowBatchBuilder
     /// <summary>The protocol takes one host per request, so a multi-domain site gets a request per domain.</summary>
     public static IEnumerable<IndexNowBatch> Build(IEnumerable<Uri> urls, int maxUrlsPerRequest = MaxUrlsPerRequest)
         => urls
-            .GroupBy(url => url.Host, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(url => url.IdnHost, StringComparer.OrdinalIgnoreCase)
             .SelectMany(group => group
                 .Select(url => url.AbsoluteUri)
                 .Distinct(StringComparer.Ordinal)

@@ -11,9 +11,11 @@ public sealed record IndexNowCandidate(Uri Url, IndexNowChangeType ChangeType, I
 
 public enum IndexNowChangeType
 {
-    /// <summary>The page was published or moved and lives at this URL.</summary>
+    /// <summary>The page was published or moved and lives at this URL. The content is what it is now.</summary>
     Updated,
 
-    /// <summary>The page no longer lives at this URL: unpublished, deleted, renamed or moved.</summary>
+    /// <summary>The page lived at this URL before the change, and usually no longer does: unpublished, deleted, renamed or
+    /// moved. The content is what it was before the change. A URL is submitted when one candidate for it passes, so a page
+    /// that stops being indexable is still submitted once.</summary>
     Removed,
 }
