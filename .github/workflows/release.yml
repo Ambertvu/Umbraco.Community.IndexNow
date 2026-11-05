@@ -1,0 +1,43 @@
+name: Release Package
+
+# This action will start when a correctly formatted tag is pushed (e.g. 17.0.0).
+# The first number of the tag is the Umbraco major the package is built against.
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Needed for NuGet Trusted Publishing
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Get the Umbraco major from the tag
+        run: echo "UMBRACO_MAJOR=${GITHUB_REF_NAME%%.*}" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: dotnet test src/IndexNow.Tests/IndexNow.Tests.csproj -c Release -p:UmbracoMajor=$UMBRACO_MAJOR
+
+      - name: Build & Pack
+        run: dotnet pack src/IndexNow/IndexNow.csproj -c Release -p:UmbracoMajor=$UMBRACO_MAJOR -p:Version=${{ github.ref_name }}
+
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: Ambertvu
+
+      - name: Push to NuGet
+        run: dotnet nuget push **/*.nupkg -k ${{ steps.login.outputs.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate

@@ -1,0 +1,14 @@
+{
+    "$schema": "https://marketplace.umbraco.com/umbraco-marketplace-schema.json",
+    "AuthorDetails": {
+      "Name": "Ambert van Unen",
+      "ImageUrl": "https://github.com/Ambertvu.png"
+    },
+    "Category": "Developer Tools",
+    "Description": "Tell Bing and the other IndexNow search engines about published, changed, moved and removed pages the moment an editor publishes them. Works across multiple domains and cultures and leaves out noindex pages. No backoffice, no database tables: add the package and a key.",
+    "LicenseTypes": [ "Free" ],
+    "IssueTrackerUrl": "https://github.com/Ambertvu/Umbraco.Community.IndexNow/issues",
+    "PackageType": "Package",
+    "Tags": [ "seo", "indexnow", "bing", "search engines", "indexing" ],
+    "Title": "IndexNow"
+  }
