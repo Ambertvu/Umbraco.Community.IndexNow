@@ -11,7 +11,7 @@
     <Product>Umbraco.Community.IndexNow</Product>
     <PackageId>Umbraco.Community.IndexNow</PackageId>
     <Title>IndexNow for Umbraco</Title>
-    <Description>Tell Bing and the other IndexNow search engines about published, changed, moved and removed Umbraco pages. Works across multiple domains and leaves out noindex pages. No backoffice, no database tables: add the package and a key.</Description>
+    <Description>Tell Bing and the other IndexNow search engines about published, renamed, moved and removed Umbraco pages, including the pages below them. Works across multiple domains and cultures, and leaves out noindex pages and pages behind Public Access. No backoffice, no database tables: add the package and a key.</Description>
     <PackageTags>umbraco;umbraco-marketplace;seo;indexnow;bing;search-engines</PackageTags>
     <Authors>Ambert van Unen</Authors>
     <Copyright>$([System.DateTime]::UtcNow.ToString(`yyyy`)) © Ambert van Unen</Copyright>

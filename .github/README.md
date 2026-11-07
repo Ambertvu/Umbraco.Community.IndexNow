@@ -4,12 +4,18 @@
 [![NuGet](https://img.shields.io/nuget/vpre/Umbraco.Community.IndexNow?color=0273B3)](https://www.nuget.org/packages/Umbraco.Community.IndexNow)
 [![GitHub license](https://img.shields.io/github/license/Ambertvu/Umbraco.Community.IndexNow?color=8AB803)](https://github.com/Ambertvu/Umbraco.Community.IndexNow/blob/main/LICENSE)
 
-Tell Bing and the other [IndexNow](https://www.indexnow.org/) search engines about changed pages the moment an editor publishes them, instead of waiting for the next crawl. Google does not take part in IndexNow.
+Tell Bing and the other [IndexNow](https://www.indexnow.org/) search engines about changed pages the moment an editor publishes them, instead of waiting for the next crawl. One submission reaches every participating engine. Google does not take part in IndexNow.
 
-- Submits pages that are published, renamed, moved, unpublished, trashed or deleted, including the branch below them.
-- Works across multiple domains and cultures.
-- Leaves out noindex pages, pages behind Public Access, pages without a template and non-public hosts.
-- No backoffice, no database tables. A failure is logged and never gets in the way of a publish.
+## Why this package
+
+Sending the URL of a published page to IndexNow takes a few lines of code. This package also covers what such a handler misses:
+
+- **URLs that change or disappear.** A rename or move submits the old and new URLs of the page and everything below it. Unpublishing, trashing or deleting a page submits its branch, a culture that goes offline submits its URLs in that culture, and a domain change submits the old and new URLs of the site. Otherwise the old URLs stay in search results until the next crawl.
+- **Multiple domains and cultures.** Addresses come from Culture and Hostnames, per culture, so there is no domain to configure. A publish submits the cultures it publishes, not every culture that is live.
+- **Pages that should stay out.** Noindex pages, a site set to noindex, pages without a template and non-public hosts are left out. So are pages behind Public Access: announcing one would give away its address.
+- **Only a key to set up.** The package serves it at `/{key}.txt` on every domain, so there is no file to place. No backoffice, no database tables.
+- **A publish does not wait for IndexNow.** Changes are queued and sent in batches in the background, and temporary failures are retried. A failure is logged and never gets in the way of a publish.
+- **Room for your own rules.** Add a filter with `IIndexNowUrlFilter`, or add URLs yourself with `IIndexNowQueue`.
 
 ## Installation
 

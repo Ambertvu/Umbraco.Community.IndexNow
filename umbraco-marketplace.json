@@ -5,7 +5,7 @@
       "ImageUrl": "https://github.com/Ambertvu.png"
     },
     "Category": "Developer Tools",
-    "Description": "Tell Bing and the other IndexNow search engines about published, changed, moved and removed pages the moment an editor publishes them. Works across multiple domains and cultures and leaves out noindex pages. No backoffice, no database tables: add the package and a key.",
+    "Description": "Tell Bing and the other IndexNow search engines about changed pages the moment an editor publishes them. Also submits the old and new URLs after a rename or move, including the pages below it, and what is unpublished, trashed or deleted. Addresses come from Culture and Hostnames, per culture, so there is no domain to configure. Noindex pages stay out, and so do pages behind Public Access: announcing one would give away its address. Only a key to set up, no backoffice, no database tables, and a publish does not wait for IndexNow.",
     "LicenseTypes": [ "Free" ],
     "IssueTrackerUrl": "https://github.com/Ambertvu/Umbraco.Community.IndexNow/issues",
     "PackageType": "Package",

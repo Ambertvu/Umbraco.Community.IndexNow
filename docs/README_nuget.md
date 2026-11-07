@@ -6,10 +6,11 @@
 
 Tell Bing and the other IndexNow search engines about changed pages the moment an editor publishes them. Use version 17.x on Umbraco 17 and 18.x on Umbraco 18.
 
-- Submits pages that are published, renamed, moved, unpublished, trashed or deleted, including the branch below them.
-- Works across multiple domains and cultures.
-- Leaves out noindex pages, pages behind Public Access, pages without a template and non-public hosts. Add your own rules with a filter.
-- No backoffice, no database tables: add the package and a key.
+- **URLs that change or disappear:** a rename or move submits the old and new URLs of the page and everything below it. Unpublishing, trashing or deleting a page submits its branch.
+- **Multiple domains and cultures:** addresses come from Culture and Hostnames, per culture, so there is no domain to configure.
+- **Pages that should stay out:** noindex pages, pages without a template and non-public hosts are left out. So are pages behind Public Access: announcing one would give away its address. Add your own rules with a filter.
+- **Only a key to set up:** the package serves it on every domain, so there is no file to place. No backoffice, no database tables.
+- **A publish does not wait for IndexNow:** changes are sent in batches in the background, and a failure never gets in the way of a publish.
 
 ```json
 {
